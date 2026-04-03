@@ -3,7 +3,7 @@ import { useAuth } from '../context/AuthContext'
 import { supabase, askAI } from '../lib/clients'
 import ReactMarkdown from 'react-markdown'
 import toast from 'react-hot-toast'
-import { Youtube, Sparkles, Copy, Save, AlertCircle, ChevronDown } from 'lucide-react'
+import { Youtube, Sparkles, Copy, Save } from 'lucide-react'
 
 const LEVELS = ['Beginner', 'Intermediate', 'Advanced']
 
@@ -25,37 +25,51 @@ export default function YTSummarizer() {
   const [level, setLevel] = useState('Beginner')
   const [loading, setLoading] = useState(false)
   const [summary, setSummary] = useState('')
-  const [videoInfo, setVideoInfo] = useState(null)
   const [saved, setSaved] = useState(false)
 
   async function fetchTranscript(videoId) {
-    // Use a public transcript API - timedtext
-    const res = await fetch(`https://www.youtube.com/api/timedtext?v=${videoId}&lang=en&fmt=json3`)
-    if (!res.ok) throw new Error('No transcript available for this video')
-    const data = await res.json()
-    const text = data.events?.filter(e => e.segs).map(e => e.segs.map(s => s.utf8).join('')).join(' ')
-    if (!text || text.trim().length < 50) throw new Error('Transcript too short or unavailable')
-    return text.slice(0, 6000) // limit for AI
+    try {
+      const res = await fetch(
+        `https://api.supadata.ai/v1/youtube/transcript?videoId=${videoId}&text=true`,
+        {
+          headers: {
+            'x-api-key': import.meta.env.VITE_SUPADATA_API_KEY
+          }
+        }
+      )
+
+      if (!res.ok) throw new Error('Transcript fetch failed')
+
+      const data = await res.json()
+
+      if (!data.content || data.content.trim().length < 50) {
+        throw new Error('Transcript too short or unavailable')
+      }
+
+      return data.content.slice(0, 6000)
+
+    } catch (err) {
+      throw new Error('Could not fetch transcript. Video may not have subtitles enabled.')
+    }
   }
 
   async function handleSummarize() {
     if (!url.trim()) return toast.error('Paste a YouTube URL first!')
     const videoId = getVideoId(url)
     if (!videoId) return toast.error('Invalid YouTube URL')
-    
+
     setLoading(true)
     setSummary('')
     setSaved(false)
 
     try {
-      setVideoInfo({ id: videoId, url })
-      
       let transcript = ''
       try {
         transcript = await fetchTranscript(videoId)
-      } catch {
-        // Fallback: ask AI to summarize based on URL context
+      } catch (err) {
+        // Fallback if transcript not available
         transcript = `[Video ID: ${videoId}] - Transcript not accessible. Please summarize based on what you might know about this content, or explain that the transcript couldn't be fetched.`
+        toast('Transcript not found, AI will do its best! 🤖', { icon: '⚠️' })
       }
 
       const prompt = `You are summarizing a YouTube video for a ${level} level student.
@@ -88,6 +102,7 @@ Make it engaging, easy to understand for a ${level} student. Use simple language
       const result = await askAI([{ role: 'user', content: prompt }])
       setSummary(result)
       toast.success('Notes ready! 📝')
+
     } catch (err) {
       toast.error(err.message || 'Failed to summarize')
     } finally {
@@ -119,7 +134,12 @@ Make it engaging, easy to understand for a ${level} student. Use simple language
       {/* Header */}
       <div style={{ marginBottom: 32 }}>
         <div style={{ display: 'flex', alignItems: 'center', gap: 12, marginBottom: 8 }}>
-          <div style={{ width: 40, height: 40, borderRadius: 11, background: 'rgba(239,68,68,0.15)', border: '1px solid rgba(239,68,68,0.3)', display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
+          <div style={{
+            width: 40, height: 40, borderRadius: 11,
+            background: 'rgba(239,68,68,0.15)',
+            border: '1px solid rgba(239,68,68,0.3)',
+            display: 'flex', alignItems: 'center', justifyContent: 'center'
+          }}>
             <Youtube size={20} color="#ef4444" />
           </div>
           <h1 className="section-title" style={{ fontSize: '1.6rem' }}>YouTube Summarizer</h1>
@@ -132,8 +152,14 @@ Make it engaging, easy to understand for a ${level} student. Use simple language
       {/* Input card */}
       <div className="glass-card" style={{ padding: '24px', marginBottom: 24 }}>
         <div style={{ display: 'flex', flexDirection: 'column', gap: 14 }}>
+
+          {/* URL Input */}
           <div>
-            <label style={{ color: '#64748b', fontSize: '0.8rem', fontFamily: 'Syne', fontWeight: 600, display: 'block', marginBottom: 8 }}>
+            <label style={{
+              color: '#64748b', fontSize: '0.8rem',
+              fontFamily: 'Syne', fontWeight: 600,
+              display: 'block', marginBottom: 8
+            }}>
               YouTube URL
             </label>
             <input
@@ -144,8 +170,13 @@ Make it engaging, easy to understand for a ${level} student. Use simple language
             />
           </div>
 
+          {/* Level Selector */}
           <div>
-            <label style={{ color: '#64748b', fontSize: '0.8rem', fontFamily: 'Syne', fontWeight: 600, display: 'block', marginBottom: 8 }}>
+            <label style={{
+              color: '#64748b', fontSize: '0.8rem',
+              fontFamily: 'Syne', fontWeight: 600,
+              display: 'block', marginBottom: 8
+            }}>
               Your Level
             </label>
             <div style={{ display: 'flex', gap: 10 }}>
@@ -168,10 +199,14 @@ Make it engaging, easy to understand for a ${level} student. Use simple language
             </div>
           </div>
 
+          {/* Valid URL indicator */}
           {url && getVideoId(url) && (
             <div style={{
-              display: 'flex', alignItems: 'center', gap: 10, padding: '10px 14px',
-              background: 'rgba(34,197,94,0.08)', border: '1px solid rgba(34,197,94,0.2)', borderRadius: 10,
+              display: 'flex', alignItems: 'center', gap: 10,
+              padding: '10px 14px',
+              background: 'rgba(34,197,94,0.08)',
+              border: '1px solid rgba(34,197,94,0.2)',
+              borderRadius: 10,
             }}>
               <div style={{ width: 8, height: 8, borderRadius: '50%', background: '#22c55e' }} />
               <span style={{ color: '#4ade80', fontSize: '0.8rem', fontFamily: 'Syne', fontWeight: 600 }}>
@@ -180,22 +215,20 @@ Make it engaging, easy to understand for a ${level} student. Use simple language
             </div>
           )}
 
+          {/* Summarize Button */}
           <button
             className="nebula-btn"
             onClick={handleSummarize}
             disabled={loading}
             style={{ padding: '13px', display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 8 }}
           >
-            {loading ? (
-              <>⏳ Generating notes...</>
-            ) : (
-              <><Sparkles size={16} /> Generate Smart Notes</>
-            )}
+            {loading ? <>⏳ Generating notes...</> : <><Sparkles size={16} /> Generate Smart Notes</>}
           </button>
+
         </div>
       </div>
 
-      {/* Result */}
+      {/* Loading State */}
       {loading && (
         <div className="glass-card" style={{ padding: '40px 24px', textAlign: 'center' }}>
           <div style={{ fontSize: '2.5rem', marginBottom: 12, animation: 'float 2s ease-in-out infinite' }}>🤖</div>
@@ -204,16 +237,26 @@ Make it engaging, easy to understand for a ${level} student. Use simple language
         </div>
       )}
 
+      {/* Summary Result */}
       {summary && !loading && (
         <div className="glass-card animate-fade-in" style={{ padding: '24px' }}>
+
           {/* Toolbar */}
-          <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 20, flexWrap: 'wrap', gap: 10 }}>
+          <div style={{
+            display: 'flex', alignItems: 'center',
+            justifyContent: 'space-between',
+            marginBottom: 20, flexWrap: 'wrap', gap: 10
+          }}>
             <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
               <span className="label-tag">✨ AI Notes</span>
               <span style={{ color: '#475569', fontSize: '0.75rem' }}>{level} Level</span>
             </div>
             <div style={{ display: 'flex', gap: 8 }}>
-              <button className="ghost-btn" onClick={copySummary} style={{ padding: '7px 14px', fontSize: '0.78rem', display: 'flex', alignItems: 'center', gap: 5 }}>
+              <button
+                className="ghost-btn"
+                onClick={copySummary}
+                style={{ padding: '7px 14px', fontSize: '0.78rem', display: 'flex', alignItems: 'center', gap: 5 }}
+              >
                 <Copy size={13} /> Copy
               </button>
               <button
@@ -227,16 +270,18 @@ Make it engaging, easy to understand for a ${level} student. Use simple language
             </div>
           </div>
 
-          {/* Markdown output */}
+          {/* Markdown Output */}
           <div className="markdown-body" style={{ lineHeight: 1.7, fontSize: '0.9rem' }}>
             <ReactMarkdown>{summary}</ReactMarkdown>
           </div>
 
-          {/* Quick quiz CTA */}
+          {/* Quiz CTA */}
           <div style={{
             marginTop: 24, padding: '16px', borderRadius: 12,
-            background: 'rgba(139,92,246,0.08)', border: '1px solid rgba(139,92,246,0.2)',
-            display: 'flex', alignItems: 'center', justifyContent: 'space-between', flexWrap: 'wrap', gap: 10,
+            background: 'rgba(139,92,246,0.08)',
+            border: '1px solid rgba(139,92,246,0.2)',
+            display: 'flex', alignItems: 'center',
+            justifyContent: 'space-between', flexWrap: 'wrap', gap: 10,
           }}>
             <span style={{ color: '#94a3b8', fontSize: '0.875rem' }}>
               Want to test yourself on this? 🧠
@@ -252,6 +297,7 @@ Make it engaging, easy to understand for a ${level} student. Use simple language
               Generate Quiz →
             </button>
           </div>
+
         </div>
       )}
 
